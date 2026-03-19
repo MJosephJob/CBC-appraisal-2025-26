@@ -254,9 +254,10 @@ input[type=text]:focus,input[type=email]:focus,input[type=number]:focus{outline:
     <button class="tab-btn active" data-tab="home"     onclick="switchTab('home')"     id="tb-home">🏠 Home</button>
     <button class="tab-btn"        data-tab="parta"    onclick="switchTab('parta')"    id="tb-parta">My Year</button>
     <button class="tab-btn"        data-tab="partb"    onclick="switchTab('partb')"    id="tb-partb">My Manager</button>
+    <button class="tab-btn hidden" data-tab="myteam"   onclick="switchTab('myteam')"   id="tb-myteam">👥 My Team</button>
     <button class="tab-btn hidden" data-tab="partc"    onclick="switchTab('partc')"    id="tb-partc">Part C</button>
     <button class="tab-btn hidden" data-tab="dashboard" onclick="switchTab('dashboard')" id="tb-dash">📊 Dashboard</button>
-    <button class="tab-btn hidden" data-tab="users"    onclick="switchTab('users')"    id="tb-users">👥 Manage Users</button>
+    <button class="tab-btn hidden" data-tab="users"    onclick="switchTab('users')"    id="tb-users">Manage Users</button>
     <button class="tab-btn hidden" data-tab="admin"    onclick="switchTab('admin')"    id="tb-admin">🛠 Admin</button>
   </div>
 
@@ -281,8 +282,10 @@ input[type=text]:focus,input[type=email]:focus,input[type=number]:focus{outline:
         <div class="time-badge">⏱ <span id="time-est">15–20 minutes</span></div>
       </div>
       <div class="status-grid" id="staff-stats-grid"></div>
+      <!-- Manager only: quick team Part C tracker (shown on home) -->
       <div class="dash-card hidden" id="mgr-team-card">
         <h4>Your Team — Part C Status</h4>
+        <p class="text-sm text-mid mb-8" style="margin-bottom:10px">Go to the <strong>My Team</strong> tab to read each person's self-evaluation.</p>
         <div id="mgr-team-list"></div>
       </div>
     </div>
@@ -341,6 +344,19 @@ input[type=text]:focus,input[type=email]:focus,input[type=number]:focus{outline:
       </div>
       <div class="dash-card"><h4>Manager Evaluation</h4><div id="dash-partc">—</div></div>
       <div class="dash-card"><h4>Development Guidance</h4><div id="dash-guidance">—</div></div>
+    </div>
+  </div>
+
+  <!-- MY TEAM — Manager views team self-evaluations -->
+  <div class="tab-content hidden" id="tab-myteam">
+    <div class="section-hdr"><div class="section-badge">My Team</div><div><h3>Team Self-Evaluations</h3><p>Click any team member to read their full self-evaluation responses.</p></div></div>
+    <div id="myteam-list"><p class="text-sm text-mid">Loading…</p></div>
+    <div id="myteam-detail" style="display:none;margin-top:16px;border-top:2px solid var(--stone-lt);padding-top:20px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h4 id="myteam-detail-name" style="font-size:16px;color:var(--brand)"></h4>
+        <button class="btn btn-sm btn-outline" onclick="S('myteam-detail').style.display='none'">✕ Close</button>
+      </div>
+      <div id="myteam-detail-content"></div>
     </div>
   </div>
 
@@ -615,24 +631,41 @@ async function initApp(){
   setText('user-avatar', APP.user.name.charAt(0).toUpperCase());
   setText('header-subtitle', role+' · '+(APP.user.team||'Staff'));
 
-  // Show tabs based on role
-  if(role==='Manager'||role==='CEO'){ showEl('tb-partc'); showEl('tab-partc'); }
-  if(role==='Manager'){               showEl('tb-dash');  showEl('tab-dashboard'); }
+  // ── ROLE-BASED TAB VISIBILITY ──
+  if(role==='TeamMember'){
+    // Team members: Home, My Year, My Manager only
+    hideEl('tb-partc');   hideEl('tab-partc');
+    hideEl('tb-myteam');  hideEl('tab-myteam');
+    hideEl('tb-dash');    hideEl('tab-dashboard');
+    hideEl('tb-users');   hideEl('tab-users');
+    hideEl('tb-admin');   hideEl('tab-admin');
+  }
+  if(role==='Manager'){
+    // Managers: Home, My Year, My Manager, My Team, Part C, Dashboard
+    showEl('tb-myteam'); showEl('tab-myteam');
+    showEl('tb-partc');  showEl('tab-partc');
+    showEl('tb-dash');   showEl('tab-dashboard');
+    hideEl('tb-users');  hideEl('tab-users');
+    hideEl('tb-admin');  hideEl('tab-admin');
+  }
   if(role==='CEO'){
-    // CEO: hide Part A, Part B, Manager Dashboard — show Users + Admin
-    hideEl('tb-parta'); hideEl('tab-parta');
-    hideEl('tb-partb'); hideEl('tab-partb');
-    showEl('tb-users'); showEl('tab-users');
-    showEl('tb-admin'); showEl('tab-admin');
+    // CEO: Home only (full dashboard), Part C, Manage Users, Admin
+    // Hide Part A, Part B, My Team, Dashboard (CEO has everything on Home + Admin)
+    hideEl('tb-parta');  hideEl('tab-parta');
+    hideEl('tb-partb');  hideEl('tab-partb');
+    hideEl('tb-myteam'); hideEl('tab-myteam');
+    hideEl('tb-dash');   hideEl('tab-dashboard');
+    showEl('tb-partc');  showEl('tab-partc');
+    showEl('tb-users');  showEl('tab-users');
+    showEl('tb-admin');  showEl('tab-admin');
   }
 
   renderHome();
-  if(role!=='CEO'){ buildPartAForm(); buildPartBForm(); }
-  // Build Part C form (non-blocking)
+  if(role==='TeamMember'||role==='Manager'){ buildPartAForm(); buildPartBForm(); }
   if(role==='Manager'||role==='CEO'){
     buildPartCForm().catch(e=>console.warn('Part C form issue:',e.message));
   }
-  if(role==='Manager') renderManagerDash();
+  if(role==='Manager'){ renderManagerDash(); loadMyTeam(); }
   if(role==='CEO')     { buildAdminPanel(); loadUsers(); loadCEODash(); }
 
   // Notifications in background
@@ -650,6 +683,7 @@ function switchTab(name){
   const tab = S('tab-'+name);
   if(tab) tab.classList.add('active');
   if(name==='home'&&APP.user&&APP.user.role==='CEO') loadCEODash();
+  if(name==='myteam') loadMyTeam();
   if(name==='admin') refreshAdminStatus();
   if(name==='users') loadUsers();
   closeNotif();
@@ -1078,6 +1112,78 @@ function showPending(key, label){
     : '<li style="color:var(--stone)">None</li>';
   setHtml('pending-popup-content','<strong style="color:var(--brand);display:block;margin-bottom:10px">⏳ Not yet submitted — '+label+'</strong><ul style="list-style:none;margin:0;padding:0;font-size:14px">'+list+'</ul>');
   const pp=S('pending-popup'); if(pp) pp.style.display='block';
+}
+
+// ═══════════════════ MY TEAM (Manager view) ═
+async function loadMyTeam(){
+  if(!APP.user||(APP.user.role!=='Manager'&&APP.user.role!=='CEO')) return;
+  try {
+    const r = await callGAS('getDirectReportsList',{});
+    const reports = (r&&r.success&&r.reports) ? r.reports : (APP.myData.directReports||[]);
+    if(!reports.length){
+      setHtml('myteam-list','<p class="text-sm text-mid">No direct reports found.</p>'); return;
+    }
+    // Fetch all Part A submissions for the manager to check who submitted
+    let listHtml = '<div style="display:flex;flex-direction:column;gap:8px">';
+    reports.forEach(rep=>{
+      const submitted = (APP.myData.partCSubmitted||[]).find(x=>x.employeeEmail.toLowerCase()===rep.email.toLowerCase());
+      listHtml += '<div class="resp-row" data-emp="'+rep.email+'" style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:var(--cream-dk,#F5F0EC);border-radius:8px;cursor:pointer">'
+        +'<div><div style="font-weight:600;font-size:14px">'+rep.name+'</div>'
+        +'<div style="font-size:12px;color:var(--stone);margin-top:2px">'+(rep.team||'')+'</div></div>'
+        +'<span style="color:var(--brand);font-size:13px;font-weight:500">View self-evaluation →</span>'
+        +'</div>';
+    });
+    listHtml += '</div>';
+    setHtml('myteam-list', listHtml);
+    // Wire click handlers
+    setTimeout(()=>{
+      document.querySelectorAll('#myteam-list .resp-row').forEach(row=>{
+        row.addEventListener('click', ()=>showTeamMemberResponse(row.getAttribute('data-emp')));
+      });
+    }, 100);
+  } catch(e){ setHtml('myteam-list','<p class="text-sm text-mid">Failed to load team. Please try again.</p>'); }
+}
+
+async function showTeamMemberResponse(email){
+  const detail = S('myteam-detail');
+  const detailContent = S('myteam-detail-content');
+  if(!detail||!detailContent) return;
+  setHtml('myteam-detail-name', 'Loading…');
+  detailContent.innerHTML = '<p class="text-sm text-mid">Loading responses…</p>';
+  detail.style.display = 'block';
+  detail.scrollIntoView({behavior:'smooth', block:'start'});
+
+  try {
+    // Use getFullResponses — manager can only see Part A (self-eval) of their reports
+    const r = await callGAS('getTeamMemberPartA', {email});
+    if(!r||!r.success){ detailContent.innerHTML='<p class="text-sm text-mid">Could not load responses.</p>'; return; }
+
+    // Find name from team list
+    const reports = APP.myData.directReports||[];
+    const rep = reports.find(x=>x.email.toLowerCase()===email.toLowerCase());
+    const name = rep ? rep.name : email;
+    setText('myteam-detail-name', name + ' — Self-Evaluation');
+
+    if(!r.partA||!r.partA.submitted){
+      detailContent.innerHTML = '<div style="padding:24px;text-align:center;color:var(--stone)"><p style="font-size:32px;margin-bottom:12px">📝</p><p>'+name+' has not submitted their self-evaluation yet.</p></div>';
+      return;
+    }
+
+    const aLabels = ['This Year','Contribution','Challenges','Support Needed','What Holds Back','Role Fit','Next Year','Habits & Growth'];
+    const ratLbls = ['Needs Attention','Below Expectations','Meets Expectations','Good','Excellent'];
+    let html = '<div style="display:flex;flex-direction:column;gap:0">';
+    for(let i=1;i<=8;i++){
+      const txt = r.partA.data['A'+i+'a'];
+      const rat = parseInt(r.partA.data['A'+i+'b'])||0;
+      html += '<div style="padding:14px 0;border-bottom:1px solid var(--stone-lt)">'
+        +'<p style="font-size:11px;font-weight:700;color:var(--brand);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">'+aLabels[i-1]+'</p>'
+        +(txt?'<p style="font-size:14px;color:var(--text);line-height:1.6;margin-bottom:6px">'+txt+'</p>':'<p style="font-size:13px;color:var(--stone);font-style:italic">No response.</p>')
+        +'<p style="font-size:12px;color:var(--text-mid)">Rating: <strong style="color:var(--brand)">'+(rat>0?ratLbls[rat-1]:'Not rated')+'</strong></p>'
+        +'</div>';
+    }
+    html += '</div>';
+    detailContent.innerHTML = html;
+  } catch(e){ detailContent.innerHTML='<p class="text-sm text-mid">Error: '+e.message+'</p>'; }
 }
 
 // ═══════════════════ MANAGE USERS ════════════
